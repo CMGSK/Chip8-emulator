@@ -1,8 +1,8 @@
 const RAM_SIZE: usize = 4096;
 const NUM_REGS: usize = 16;
 const STACK_SIZE: usize = 16;
-const SCREEN_WIDTH: usize = 64;
-const SCREEN_HEIGHT: usize = 32;
+pub const SCREEN_WIDTH: usize = 64;
+pub const SCREEN_HEIGHT: usize = 32;
 const NUM_KEYS: usize = 16;
 const START_ADDR: u16 = 0x200;
 const FONT_SIZE: usize = 80;
@@ -58,6 +58,10 @@ impl Emulator {
         new_emulator
     }
 
+    pub fn get_display(&self) -> &[bool] {
+        &self.screen
+    }
+
     fn fetch(&mut self) -> u16 {
         let higher_byte: u16 = self.ram[self.pc as usize] as u16;
         let lower_byte: u16 = self.ram[(self.pc + 1) as usize] as u16;
@@ -80,14 +84,47 @@ impl Emulator {
             (0, 0, 0xE, 0) => {
                 self.screen = [false; SCREEN_WIDTH * SCREEN_HEIGHT];
             }
+            (1, _, _, _) => {
+                let nnn = opcode & 0xFFF;
+                self.pc = nnn;
+            }
             (6, _, _, _) => {
                 let x = digit2 as usize;
                 let kk = (opcode & 0xFF) as u8;
                 self.v_reg[x] = kk;
             }
+            (7, _, _, _) => {
+                let x = digit2 as usize;
+                let kk = (opcode & 0xFF) as u8;
+                self.v_reg[x] = self.v_reg[x].wrapping_add(kk);
+            }
             (0xA, _, _, _) => {
                 let nnn = opcode & 0xFFF;
                 self.i_reg = nnn;
+            }
+            (0xD, _, _, _) => {
+                let x_coord = self.v_reg[digit2 as usize] as u16;
+                let y_coord = self.v_reg[digit3 as usize] as u16;
+                let n_rows = digit4;
+                let mut flipped: bool = false;
+                for y_line in 0..n_rows {
+                    let addr = self.i_reg + y_line as u16;
+                    let pixels = self.ram[addr as usize];
+                    for x_line in 0..8 {
+                        if (pixels & (0b1000_0000 >> x_line)) != 0 {
+                            let x = (x_coord + x_line) as usize % SCREEN_WIDTH;
+                            let y = (y_coord + y_line) as usize % SCREEN_HEIGHT;
+                            let pixel_index = x + SCREEN_WIDTH * y;
+                            flipped = flipped | self.screen[pixel_index];
+                            self.screen[pixel_index] = true;
+                        }
+                    }
+                }
+                if flipped {
+                    self.v_reg[0xF] = 1;
+                } else {
+                    self.v_reg[0xF] = 0;
+                }
             }
             (_, _, _, _) => unimplemented!("Unimplemented Opcode: {:#06x}", opcode),
         }
